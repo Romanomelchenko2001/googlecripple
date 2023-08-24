@@ -4,32 +4,33 @@ import re
 import sqlite3
 import numpy as np
 from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
+from parcer_beeautiful_soup.parcer_bs import Parcer_bs
+
 
 class Site:
     def __init__(self, url: str,
-                    metaproperties: List[Dict[str, str]],
-                    titles: List[str],
-                    text: List[str] = None,
-                    headers: Dict[str, Any] = None, keywords: Dict[str, float] = None):
+                 metaproperties: List[Dict[str, str]],
+                 titles: List[str],
+                 text: List[str] = None,
+                 headers: Dict[str, Any] = None, keywords: Dict[str, float] = None):
         self.url = url
         self.metaproperties = metaproperties
-        self.titles = titles
+        self.titles = [title[0] for title in titles] if type(titles[0]) == type([]) else titles
         self.text = text
         self.keywords = keywords
         self.headers = headers
 
-    def __eq__(self, url:str):
+    def __eq__(self, url: str):
         return self.url == url
 
     def __str__(self):
-        return f'Site`s Titles :{", ".join(self.titles)}, URL:{self.url}'
+        return f'Site`s Titles :{", ".join([title for title in self.titles])}, URL:{self.url}'
 
 
 class Index:
     def __init__(self):
-        self.keywords_to_sites = dict()#  dict[str, list(tuple(double, Site))]
-        #self.keywords = list()
+        self.keywords_to_sites = dict()  # dict[str, list(tuple(double, Site))]
+        # self.keywords = list()
         self.sites_num = 0
         self.sites = []
 
@@ -70,14 +71,16 @@ class Index:
                 return site
         return None
 
+
 class Cursor:
-    def __init__(self, database_file:str=r"D:\\prog\\python learning\\pytorch\\pythonProject\\urlbase.db", ):
+    def __init__(self, database_file: str = r"D:\\prog\\python learning\\pytorch\\pythonProject\\urlbase.db"):
         self.connection = sqlite3.connect(database_file)
         self.cursor = self.connection.cursor()
 
         # extracting "keyword->site" data for existing objects in database
 
-        command = 'select Keywords.id, keyword, group_concat(SitesToKeywords.id),group_concat(SitesToKeywords.priority),' \
+        command = 'select Keywords.id, keyword, group_concat(SitesToKeywords.id), ' \
+                  'group_concat(SitesToKeywords.priority),' \
                   ' group_concat(SitesToKeywords.siteid), group_concat(sites.url) from Keywords join SitesToKeywords ' \
                   'on keywordid = Keywords.id join Sites on Sites.id = SitesToKeywords.siteid ' \
                   'group by Keywords.id order by keyword asc, priority desc'
@@ -90,28 +93,29 @@ class Cursor:
         # downloading existing in database sites to index
         self.get_start_state(res, titles_res)
 
-
-
     def get_start_state(self, res, titles_res):
         url_titles = {titles_res[i][1]: titles_res[i][0] for i in range(len(titles_res))}
         for (keyw_id, keyw, sites_to_keyw_ids, sites_to_keyw_priorities, siteids, siteurls) in res:
-            keyw_priorities, siteurls = sites_to_keyw_priorities.split(',') if ',' in sites_to_keyw_priorities else [sites_to_keyw_priorities],\
+            keyw_priorities, siteurls = sites_to_keyw_priorities.split(',') if ',' in sites_to_keyw_priorities else [
+                sites_to_keyw_priorities], \
                                         siteurls.split(',') if ',' in siteurls else [siteurls]
-            for i,siteurl in enumerate(siteurls):
+            for i, siteurl in enumerate(siteurls):
                 site = self.index.search_by_url(siteurl)
                 if site is None:
                     site = Site(siteurl, None, url_titles[siteurl].split(','), None, None,
-                                   {keyw: float(keyw_priorities[i])})
+                                {keyw: float(keyw_priorities[i])})
                     self.index.sites.append(site)
                 else:
                     site.keywords[keyw] = float(keyw_priorities[i])
                 self.index.add_to_index((keyw, float(keyw_priorities[i])), site)
 
+    # functions for inserting into database
+
     def insert_site(self, url, text):
         tt = ""
         for w in text:
-            tt += '\n'+w
-        tt = tt.replace("'","<quotemark>")
+            tt += '\n' + w
+        tt = tt.replace("'", "<quotemark>")
         tt = tt.replace('"', "<quotemark>")
         insert_command = f'insert or ignore into Sites (url, text_data_raw) values ("{url}","{tt}");'
         id_command = f"select id from Sites where url = '{url}';"
@@ -119,6 +123,8 @@ class Cursor:
         self.connection.commit()
         id = self.cursor.execute(id_command).fetchone()[0]
         return id
+
+    # functions for inserting into database
 
     def insert_keywords(self, keywords: Dict[str, float], url, siteid, site):
         for keyword, tf_idf in keywords.items():
@@ -133,6 +139,8 @@ class Cursor:
             self.cursor.execute(command)
             self.connection.commit()
             self.index.add_to_index((keyword, tf_idf), site)
+
+    # functions for inserting into database
 
     def insert_metadata(self, metaproperties: List[Dict[str, str]], headers: Dict[str, Any], siteid):
         for props_values in metaproperties:
@@ -150,10 +158,11 @@ class Cursor:
                 print('bad metadata, skipping...')
         self.connection.commit()
 
+    # functions for inserting into database
+
     def insert_titles(self, titles: List['str'], siteid):
-        print(titles)
         for title in titles:
-            title = title[0].replace("'","<quotemark>")
+            title = title[0].replace("'", "<quotemark>")
             title = title.replace('"', "<quotemark>")
             command = f"insert or ignore into Titles (title, siteid) values ('{title}', {siteid})"
             self.cursor.execute(command)
@@ -164,6 +173,7 @@ class Cursor:
                     titles: List[str],
                     text: List[str],
                     headers: Dict[str, Any], keywords: Dict[str, float]):
+        # creating a new web-page object for adding into index and printing
         newsite = Site(url=url,
                        metaproperties=metaproperties,
                        titles=titles,
@@ -177,6 +187,7 @@ class Cursor:
         for kw_pr in keywords.items():
             self.index.add_to_index(keyword=kw_pr, site=newsite)
         self.index.sites_num += 1
+        print(f"Parced {str(newsite)}")
         return True
 
 
@@ -190,13 +201,13 @@ class Parcer:
         s = -1
         e = -1
         for i, chunk in enumerate(req_text):
-            if 'head>' in chunk and s==-1:
+            if 'head>' in chunk and s == -1:
                 s = i
-            if '</head>' in chunk and e==-1:
+            if '</head>' in chunk and e == -1:
                 e = i
 
         if s != -1 and e != -1:
-            head = req_text[s: e if e!=s else e+1]
+            head = req_text[s: e if e != s else e + 1]
         else:
             head = req_text[req_text.index(r'<head>') + 1: req_text.index(r'</head>') - 1]
 
@@ -218,26 +229,26 @@ class Parcer:
 
         return metaproperties, titles, text
 
-    def parse_head(self, head): # head - list('str')
+    def parse_head(self, head):  # head - list('str')
         # using cur pos in a text for identifying position in a chunk of head
         cur_pos = 0
         metaproperties_titles = {'meta': [dict()], 'title': []}
         for i, chunk in enumerate(head):
-            if i ==2:
+            if i == 2:
                 pass
             cur_pos = 0
-            while cur_pos < len(chunk)-1:
+            while cur_pos < len(chunk) - 1:
                 try:
                     # if we meet an opening tag
-                    if  chunk[cur_pos] == '<' and chunk[cur_pos+1] != '/':
-                        #self.opened = True
-                        #a = len(chunk)
+                    if chunk[cur_pos] == '<' and chunk[cur_pos + 1] != '/':
+                        # self.opened = True
+                        # a = len(chunk)
                         self.opened = True
 
                         if '>' in chunk[cur_pos:]:
-                            tag_end = cur_pos+chunk[cur_pos:].index('>')
+                            tag_end = cur_pos + chunk[cur_pos:].index('>')
                         else:
-                            tag_end = len(chunk)-1
+                            tag_end = len(chunk) - 1
                         tag = chunk[cur_pos + 1:tag_end]
                         # if the tag has the closing slash in the end, we close a tag
                         if tag[-1] == '/':
@@ -252,23 +263,23 @@ class Parcer:
                                     key_val = prop.split('=')
                                     metaproperties_titles[tag_props[0]][-1][key_val[0]] = key_val[1]
                                 else:
-                                    metaproperties_titles[tag_props[0]][-1][key_val[0]] += (' '+prop)
+                                    metaproperties_titles[tag_props[0]][-1][key_val[0]] += (' ' + prop)
                             cur_pos = cur_pos + chunk[cur_pos:].index('>')
                             self.opened = False
                         else:
                             # if we have other tag than meta and title, we skip it
                             if '<' in chunk[tag_end:]:
-                                closing_tag = chunk[tag_end:].index('<') if tag_end != len(chunk)-1 else tag_end
+                                closing_tag = chunk[tag_end:].index('<') if tag_end != len(chunk) - 1 else tag_end
                             else:
                                 closing_tag = tag_end
                             # if we have title tag, we skip to the beginning of the title's text and mark tag as closed
                             if tag_props[0] == 'title':
                                 metaproperties_titles['title'].append([])
-                                cur_pos = tag_end+1
+                                cur_pos = tag_end + 1
                                 self.opened = False
                             else:
-                                cur_pos = tag_end+1
-                    #if current tag is closed and current position is on alphabetical symbol,
+                                cur_pos = tag_end + 1
+                    # if current tag is closed and current position is on alphabetical symbol,
                     # than it's title and we write it down
                     elif str.isalpha(chunk[cur_pos]) and not self.opened:
                         closing_tag = cur_pos + chunk[cur_pos:].index('<')
@@ -278,10 +289,10 @@ class Parcer:
                     # is not an alphabetical symbol, than we skip it
                     else:
                         if '>' in chunk[cur_pos:]:
-                            cur_pos = cur_pos+ chunk[cur_pos:].index('>') +1
+                            cur_pos = cur_pos + chunk[cur_pos:].index('>') + 1
                             self.opened = False
                         else:
-                            cur_pos=len(chunk)-1
+                            cur_pos = len(chunk) - 1
 
                 except ValueError:
                     print(f'tried to reach closing or opening of the tag at chunk {i} of length {len(chunk)},'
@@ -303,7 +314,7 @@ class Parcer:
                 a = len(chunk)
                 try:
                     if chunk[cur_pos] == '<':
-                        self.opened = not (chunk[cur_pos+1] == '/')
+                        self.opened = not (chunk[cur_pos + 1] == '/')
                         if '>' in chunk[cur_pos:]:
                             tag_end = cur_pos + chunk[cur_pos:].index('>') + 1
                             self.opened = False
@@ -329,7 +340,7 @@ class Parcer:
                             cur_pos = cur_pos + chunk[cur_pos:].index('>') + 1
                             self.opened = False
                         else:
-                            cur_pos = len(chunk)-1
+                            cur_pos = len(chunk) - 1
                 except ValueError:
                     print(f'tried to reach closing or opening of the tag at chunk {i} of length {len(chunk)},'
                           f' current position in chunk {cur_pos} \n chunk body {chunk}')
@@ -351,24 +362,44 @@ class Parcer:
             occurences = re.findall(expr, title[0])
             wordbag += occurences
         words, freqs = np.unique(np.asarray(wordbag), return_counts=True)
-        tf = freqs/freqs.sum()
+        tf = freqs / freqs.sum()
         doc_freq = []
         for i in words:
             if i in index.keywords_to_sites.keys():
                 doc_freq.append(len(index.keywords_to_sites[i]))
             else:
                 doc_freq.append(0)
-        a = np.asarray(doc_freq)+1
-        b = index.sites_num+1 + alpha*(index.sites_num+1)
-        idf = np.log2(b/a)
-        tf_idf = tf*idf
+        a = np.asarray(doc_freq) + 1
+        b = index.sites_num + 1 + alpha * (index.sites_num + 1)
+        idf = np.log2(b / a)
+        tf_idf = tf * idf
         inds = tf_idf.argsort()
         # returning 5 most important words
         return dict(list(zip(list(words[inds][:5]), list(tf_idf[inds][:5]))))
 
+
 class Requester:
     def __init__(self):
         self.parcer = Parcer()
+        self.parcer2 = Parcer_bs(None)
+
+    def make_request2(self, url: str, headers: Dict[str, Any] = None,
+                      parameters: Dict[str, Any] = None):
+        try:
+            res = requests.get(url=url, headers=headers, params=parameters)
+            if res.status_code != requests.codes.ok:
+                res.raise_for_status()
+            text = res.text  # .split('<!DOCTYPE html>')[1]
+            # text = text[text.index('<'):]
+            headers = res.headers
+            return text, headers
+        except:
+            print("Bad connection", res.status_code)
+
+    def parse2(self, text, index):
+        titles, h1headers, text = self.parcer2.get_soup(text)
+        keywords = self.parcer2.parse_keywords(titles, h1headers, text, index)
+        return titles, h1headers, text, keywords
 
     # making a request
     def make_request(self, url: str, headers: Dict[str, Any] = None,
