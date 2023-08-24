@@ -352,7 +352,6 @@ class Parcer:
     def parse_keywords(self, titles: List[str], text: List[str],
                        index: Index, alpha: float = 0.1):
         # parse keywords using term frequency, inverse document frequency
-
         expr = "[A-Za-z][A-Za-z0-9]+"
         wordbag = []
         for charbag in text:
